@@ -22,9 +22,8 @@ insert.add_argument("port", type=int)
 insert.add_argument("-s", "--seconds", type=int, default=60)
 
 def do_get(args):
-	downloader = halp.Downloader(following=[args.label])
-	downloader[args.label].save()
-	print str(downloader[args.label])
+	downloader = halp.Downloader()
+	print downloader.get(args.label)
 
 def do_insert(args):
 	cache = halp.Cache()

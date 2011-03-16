@@ -188,6 +188,12 @@ class Downloader:
 		for i in following:
 			self.load(i)
 
+	def get(self, labelname):
+		label = self[labelname]
+		self.load(labelname)
+		label.save()
+		return str(label)
+
 	def add(self, labelname):
 		self.labels[labelname] = self.cache.get(labelname)
 
@@ -199,7 +205,10 @@ class Downloader:
 		response = None
 		for i in self.labels['halp']:
 			try:
-				response = talk((i[0],i[1]), query)
+				address = (i[0],i[1])
+				response = talk(address, query)
+				# bring first working serve to top of cache
+				self.insertToCache('halp',address, 0)
 				break
 			except Exception:
 				pass
