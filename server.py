@@ -20,7 +20,7 @@ def parse(query):
 		return do_get(match.group(1), slice=slice)
 
 def do_get(label, index=None, slice=(0,10)):
-	return "bluberoo"
+	return str(halp.posixnow())+" localhost 3452"
 	addrlist = dl.get(label).split("\n")
 	if index == None:
 		return "\n".join(addrlist[slice[0]:slice[1]])
@@ -31,9 +31,14 @@ gate = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 gate.bind(('',3451))
 gate.listen(5)
 print "Now serving."
-while 1:
-	client, caddress = gate.accept()
-	print "Connection:",caddress
-	query = client.recv(4096)
-	client.sendall(parse(query))
-	client.close()
+try:
+	while 1:
+		client, caddress = gate.accept()
+		print "Connection:",caddress
+		query = client.recv(4096)
+		response = parse(query)
+		print "Sending:\n%s" % response
+		client.sendall(response)
+		client.close()
+except KeyboardInterrupt:
+	gate.close()

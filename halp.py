@@ -19,6 +19,12 @@ def isvalidlabel(labelname):
 		return False
 	return True
 
+def posixtime(mytime):
+	return int(time.mktime(mytime.timetuple()))
+
+def posixnow():
+	return posixtime(datetime.datetime.utcnow())
+
 def to_text(address, seconds):
 	assert(type(seconds)==int)
 	return " ".join([str(seconds), address[0], str(address[1])])
@@ -157,7 +163,7 @@ class Label:
 		result = ""
 		for i in self.contents:
 			result += to_text_dt((i[0],i[1]), i[2]) +"\n"
-		return result
+		return result[:-1]
 
 	def __len__(self):
 		return len(self.contents)
@@ -203,19 +209,23 @@ class Downloader:
 		if slice!=None:
 			query+="[%d:%d]" % slice
 		response = None
+		address = None
 		for i in self.labels['halp']:
 			try:
 				address = (i[0],i[1])
 				response = talk(address, query)
-				# bring first working serve to top of cache
-				self.insertToCache('halp',address, 0)
 				break
 			except Exception:
 				pass
 		if response == None:
 			return ""
+		serverGood = False
 		for line in response.split('\n'):
+			serverGood = True
 			label.setfromtext(line)
+		if serverGood:
+			# bring first working server to top of cache
+			self.insertToCache('halp',address, 0)
 		return response
 
 	def __getitem__(self, labelname):
