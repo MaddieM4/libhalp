@@ -1,0 +1,49 @@
+HALP stands for Host Address List Protocol. It's essentially a distributed list
+of hostname/port combos prioritized by how recently they've been confirmed to
+work. The intent is to provide a decentralized peer introduction service for
+any and every P2P application that wants to completely decentralize. The trick
+is that HALP servers are also listed within HALP, which is what allows them to
+decentralize with their own service.
+
+HALP simplifies the work for developers by providing a simple interface to a
+simple, easily implemented standard they can depend on for peer discovery 
+without writing any host caching code themselves. Also, by having a single
+unifying peer discovery "language" for things like bittorrent and freenet
+means that the HALP network will have the combined strength of all of them,
+providing benefits for small services and large services alike. With this kind
+of resource available freely to everyone, hopefully we can kill our depandency
+on centralized servers for P2P systems.
+
+The best resource at present if you want to understand the protocol is
+	| http://thisisimprobable.tumblr.com/post/3865253817/halp
+
+However, certain parts of the spec have changed since that writing, and what
+I'll do eventually when I have more time is to move the spec over into the
+repo where it can change with the practical realities discovered in development
+until the implementations stabilize. It's recommended that, for now, you work
+ON the HALP protocol instead of WITH it, if you're inclined.
+
+There are two separate libraries in this repo, which is probably a really good
+example of really bad organization. The Python library (halp.py) is a lot more
+mature than the C library, and comes with example code to show how to use it.
+
+client.py does not need a running server to function, but it's blind to the
+world if it has nothing to talk to. You can insert things into the local cache
+with "./client.py insert somelabel localhost 30" or some such similar command,
+but what you really want is to test out the *protocol*. On another computer
+(if you can, if not than use localhost for the hostname later) add a few random
+hosts to whatever labels you want (the client has full usage help, just play
+around with it). Then run server.py with no arguments. When you connect to it
+with the client (by adding the server's hostname/port combo to the local 'halp'
+list and running 'get' requests on various labels), you'll see the information
+from the server being copied over to the client, and the server happily printing
+out information on every connection event that goes through it.
+
+	TODO:
+
+	* Add insertion support to the server
+	* Create a bcast function that attempts to send an insertion to the 
+	  first N working HALP servers.
+	* Add sublabel support to the core module
+	* Add a .allocation file to the cache to control the maximum size of
+	  lists cached on the disk and memory.
