@@ -42,17 +42,22 @@ def do_insert(args):
 	mytime = datetime.datetime.utcfromtimestamp(mytimestamp)
 	label.set((args.hostname, args.port), mytime)
 	label.save()
+	print "'%s %d' inserted to local cache under label '%s'" % (args.hostname, args.port, args.label)
+	print "Timestamp", mytimestamp
 
-def do_bcast(args)
+def do_bcast(args):
 	downloader = halp.Downloader()
-	downloader.bcast_insert(args.label, args.hostname, args.port,
+	print downloader.bcast_insert(args.label, args.hostname, args.port,
 		args.number, halp.posixnow()-args.seconds)
 
 def do_clear(args):
 	halp.Cache().clear(args.label)
+	print "Contents of label '%s' deleted." % args.label
 
 def do_nuke(args):
 	halp.Cache().clear_all()
+	print """All cache files deleted (does not include .allocation 
+config or containing folder)"""
 
 get.set_defaults(func=do_get)
 insert.set_defaults(func=do_insert)

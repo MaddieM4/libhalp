@@ -41,7 +41,6 @@ out information on every connection event that goes through it.
 
 	TODO:
 
-	* Add insertion support to the server
-	* Add sublabel support to the core module
+	* Add sublabel tracking to the server
 	* Add a .allocation file to the cache to control the maximum size of
 	  lists cached on the disk and memory.

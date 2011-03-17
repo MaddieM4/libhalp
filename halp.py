@@ -292,22 +292,29 @@ class Downloader:
 
 	def bcast_insert(self, label, hostname, port, n=5, timestamp=posixnow()):
 		query = "insert "+label+"\n"+" ".join(
-			[timestamp, hostname, str(port)])
-		self.bcast(query, n)
+			[str(timestamp), hostname, str(port)])
+		return self.bcast(query, n)
 
 	def bcast(self, query, n):
-		assert(type(query)==string)
+		assert(type(query)==str)
 		assert(type(n)==int)
+		message = ""
+		t = 0
 		for i in self['halp']:
-			# Broadcast down the list until n=0 or end of list
-			if n <= 0:
+			# Broadcast down the list until t=n or end of list
+			if t >= n:
 				break
 			try:
 				address = i[:2]
 				response = talk(address, query)
-				n -= 1
+				message += "Server %s responded:\n\t%s\n" %(
+					str(address), 
+					response.replace("\n","\n\t"))
+				t += 1
 			except Exception:
 				pass
+		message += "%d/%d messages sent successfully" % (t, n)
+		return message
 
 	def clear(self, labelname):
 		with self.lock:
@@ -407,6 +414,7 @@ class AutoDownloader(Downloader):
 
 get = re.compile("get (\w+)$")
 getslice = re.compile("get (\w+)\[(\d+):(\d+)\]$")
+insert = re.compile("insert(( [a-z0-9_\.]+)*)\n")
 
 class Server:
 	''' A fully featured HALP server. '''
@@ -426,8 +434,9 @@ class Server:
 			client, caddress = self.socket.accept()
 			print "Connection:",caddress
 			query = client.recv(4096)
+			print "Query:\n\t",query.replace("\n","\n\t")
 			response = self.parse(query)
-			print "Sending:\n%s" % response
+			print "Sending:\n\t", response.replace("\n","\n\t"),"\n"
 			client.sendall(response)
 			client.close()
 
@@ -445,6 +454,11 @@ class Server:
 			match = get.match(query)
 			slice = tuple(match.group(2).split(":"))
 			return self.do_get(match.group(1), slice=slice)
+		elif insert.match(query):
+			# 1 - label list
+			labels = insert.match(query).groups(1)[0].split()
+			entries = query.split("\n")[1:]
+			return self.do_insert(labels, entries)
 
 	def do_get(self, label, index=None, slice=(0,10)):
 		# return str(halp.posixnow())+" localhost 3452"
@@ -453,3 +467,16 @@ class Server:
 			return "\n".join(addrlist[slice[0]:slice[1]])
 		else:
 			return addrlist[index]
+
+	def do_insert(self, labels, entries):
+		message = ""
+		for l in labels:
+			label = self.dl[l]
+			for e in entries:
+				ml = l +" "+ e
+				if label.setfromtext(e):
+					message += "success: "+ml
+				else:
+					message += "failure: "+ml
+			label.save()
+		return message
