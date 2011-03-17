@@ -49,7 +49,10 @@ class Cache:
 
 	def get(self, labelname):
 		path = self.labelpath(labelname)
-		return Label(path)
+		return Label(path, self.is_sub(labelname))
+
+	def is_sub(self, labelname):
+		return labelname == "labels" or labelname[-1:] == "/"
 
 	def clear(self, labelname):
 		os.remove(self.labelpath(labelname))
@@ -61,8 +64,11 @@ class Cache:
 cacheaddress = re.compile("(\d+) (.+) (\d+)$")
 
 class Label:
-	def __init__(self, path, maxsize = None):
+	''' A class that models a label in the cache. Not thread-safe
+	individually, but if you use a Downloader for access you'll be safe.'''
+	def __init__(self, path, sub, maxsize = None):
 		self.path = path
+		self.sub = sub
 		self.maxsize = maxsize
 		self.contents = []
 		self.addresses = set()
@@ -86,7 +92,7 @@ class Label:
 		self.trim(0)
 		if not self.load():
 			for i in backup:
-				self.set((i[0],i[1]), i[2])
+				self.set(self.addr(i),self.time(i))
 			return False
 		return True
 
@@ -101,7 +107,10 @@ class Label:
 		if match:
 			t = datetime.datetime.utcfromtimestamp(
 				float(match.group(1)) )
-			address = match.group(2), int(match.group(3))
+			if self.sub:
+				address = match.group(2)
+			else:
+				address = match.group(2), int(match.group(3))
 			self.set(address, t)
 			return True
 		else:
@@ -109,12 +118,15 @@ class Label:
 
 	def set(self, address, timestamp):
 		assert(type(timestamp)==datetime.datetime)
-		assert(type(address[0])==str)
-		assert(type(address[1])==int)
+		if self.sub:
+			assert(type(address)==str)
+		else:
+			assert(type(address[0])==str)
+			assert(type(address[1])==int)
 		a = self.alloc(address)
 		if self[a] != None:
-			timestamp = max(self[a][2], timestamp)
-		self[a] = (address[0],address[1], timestamp)
+				timestamp = max(self.time(self[a]), timestamp)
+		self[a] = self.nentry(address, timestamp)
 		self.addresses.add(address)
 		if self.maxsize!=None:
 			self.trim(self.maxsize)
@@ -126,7 +138,7 @@ class Label:
 		if address in self:
 			index = 0
 			for i in self.contents:
-				if i[:2] == address:
+				if self.addr(i) == address:
 					return index
 				index += 1
 			raise Exception("Sanity check failed")
@@ -146,16 +158,34 @@ class Label:
 			return len(self.contents)
 
 	def sort(self):
-		self.contents.sort(key=lambda tup: tup[2], reverse=True)
+		self.contents.sort(key=lambda tup: self.time(tup), reverse=True)
 
 	def trim(self, size):
 		self.sort()
 		for i in self.contents[size:]:
-			self.addresses.remove((i[0],i[1]))
+			self.addresses.remove(self.addr(i))
 		del self.contents[size:]
 
 	def clear(self):
 		os.remove(self.path)
+
+	def addr(self, tup):
+		if self.sub:
+			return tup[0]
+		else:
+			return tup[:2]
+
+	def time(self, tup):
+		if self.sub:
+			return tup[1]
+		else:
+			return tup[2]
+
+	def nentry(self, address, mytime):
+		if self.sub:
+			return address, mytime
+		else:
+			return address[0], address[1], mytime
 
 	def __getitem__(self, index):
 		return self.contents[index]
@@ -185,6 +215,7 @@ class Label:
 
 	def __len__(self):
 		return len(self.contents)
+
 
 def talk(address, query):
 	# A simple TCP exchange function for talking to HALP servers
