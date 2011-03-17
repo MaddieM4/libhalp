@@ -2,11 +2,14 @@
 # it than C, where I was struggling with the language a lot more than the
 # actual problem at hand.
 
+import os
 import os.path
 import re
 import datetime
 import time
 import socket
+import threading
+from random import random
 
 def isvalidlabel(labelname):
 	split = labelname.split('/')
@@ -48,6 +51,13 @@ class Cache:
 		path = self.labelpath(labelname)
 		return Label(path)
 
+	def clear(self, labelname):
+		os.remove(self.labelpath(labelname))
+
+	def clear_all(self):
+		for i in os.listdir(self.path):
+			os.remove(os.path.join(self.path,i))
+
 cacheaddress = re.compile("(\d+) (.+) (\d+)$")
 
 class Label:
@@ -57,6 +67,7 @@ class Label:
 		self.contents = []
 		self.addresses = set()
 		self.load()
+		self.sort()
 
 	def load(self):
 		if os.path.exists(self.path):
@@ -100,7 +111,10 @@ class Label:
 		assert(type(timestamp)==datetime.datetime)
 		assert(type(address[0])==str)
 		assert(type(address[1])==int)
-		self.contents[self.alloc(address)] = (address[0],address[1], timestamp)
+		a = self.alloc(address)
+		if self[a] != None:
+			timestamp = max(self[a][2], timestamp)
+		self[a] = (address[0],address[1], timestamp)
 		self.addresses.add(address)
 		if self.maxsize!=None:
 			self.trim(self.maxsize)
@@ -132,12 +146,16 @@ class Label:
 			return len(self.contents)
 
 	def sort(self):
-		self.contents.sort(key=lambda tup: tup[2])
+		self.contents.sort(key=lambda tup: tup[2], reverse=True)
 
 	def trim(self, size):
 		self.sort()
-		for i in range(size, len(self)):
-			del self[i]
+		for i in self.contents[size:]:
+			self.addresses.remove((i[0],i[1]))
+		del self.contents[size:]
+
+	def clear(self):
+		os.remove(self.path)
 
 	def __getitem__(self, index):
 		return self.contents[index]
@@ -154,7 +172,7 @@ class Label:
 	def __delitem__(self, index):
 		address = self[index][:2]
 		self.addresses.remove(address)
-		del self.contents[i]
+		del self.contents[index]
 
 	def __contains__(self, address):
 		return address in self.addresses
@@ -183,58 +201,206 @@ def talk(address, query):
 	return response
 
 class Downloader:
+	''' A thread-safe updatable interface to the cache '''
 	def __init__(self, path=None, following = []):
-		if path==None:
-			self.cache = Cache()
-		else:
-			self.cache = Cache(path)
-		self.labels = {}
-		self.load('halp')
-		self['halp'].save()
-		for i in following:
-			self.load(i)
+		self.lock = threading.RLock()
+		with self.lock:
+			if path==None:
+				self.cache = Cache()
+			else:
+				self.cache = Cache(path)
+			self.labels = {}
+			self.load('halp')
+			self['halp'].save()
+			for i in following:
+				self.load(i)
 
 	def get(self, labelname):
-		label = self[labelname]
-		self.load(labelname)
-		label.save()
-		return str(label)
+		with self.lock:
+			label = self[labelname]
+			self.load(labelname)
+			label.save()
+			return str(label)
 
 	def add(self, labelname):
-		self.labels[labelname] = self.cache.get(labelname)
+		with self.lock:
+			self.labels[labelname] = self.cache.get(labelname)
+
+	def remove(self, labelname):
+		with self.lock:
+			del self.labels[labelname]
+
+	def load_cached(self, labelname):
+		with self.lock:
+			return str(self[labelname])
 
 	def load(self, labelname, slice=None):
-		label = self[labelname]
-		query = "get "+labelname
-		if slice!=None:
-			query+="[%d:%d]" % slice
-		response = None
-		address = None
-		for i in self.labels['halp']:
-			try:
-				address = (i[0],i[1])
-				response = talk(address, query)
-				break
-			except Exception:
-				pass
-		if response == None:
-			return ""
-		serverGood = False
-		for line in response.split('\n'):
-			serverGood = True
-			label.setfromtext(line)
-		if serverGood:
-			# bring first working server to top of cache
-			self.insertToCache('halp',address, 0)
-		return response
+		with self.lock:
+			label = self[labelname]
+			query = "get "+labelname
+			if slice!=None:
+				query+="[%d:%d]" % slice
+			response = None
+			address = None
+			for i in self.labels['halp']:
+				try:
+					address = (i[0],i[1])
+					response = talk(address, query)
+					break
+				except Exception:
+					pass
+			if response == None:
+				return ""
+			serverGood = False
+			for line in response.split('\n'):
+				serverGood = True
+				label.setfromtext(line)
+			if serverGood:
+				# bring first working server to top of cache
+				self.insertToCache('halp',address, 0)
+			return response
+
+	def clear(self, labelname):
+		with self.lock:
+			self.cache.clear(labelname)
+
+	def clear_all(self):
+		with self.lock:
+			self.cache.clear()
 
 	def __getitem__(self, labelname):
-		if not labelname in self.labels:
-			self.add(labelname)
-		return self.labels[labelname]
+		with self.lock:
+			if not labelname in self.labels:
+				self.add(labelname)
+			else:
+				self.labels[labelname].reload()
+			return self.labels[labelname]
 
 	def insertToCache(self, label, address, seconds):
-		self[label].setfromtext(to_text(address, seconds))
+		with self.lock:
+			self[label].setfromtext(to_text(address, seconds))
 
 	def insertToCache_dt(self, label, address, mytime):
-		self[label].setfromtext(to_text_dt(address, mytime))
+		with self.lock:
+			self[label].setfromtext(to_text_dt(address, mytime))
+
+	def close(self):
+		with self.lock:
+			all_labels = [i for i in self.labels]
+			for i in all_labels:
+				self.remove(i)
+
+class Updater(threading.Thread):
+	''' A threaded label updater. '''
+	def __init__(self, dl, label, frequency=200):
+		threading.Thread.__init__(self)
+		self.dl = dl
+		self.tlock = threading.Lock()
+		self.label = label
+		self.frequency = frequency
+		self.timer = None
+		self.cancelled = False
+
+	def update(self):
+		with self.dl.lock:
+			self.dl.load(self.label)
+			self.dl[self.label].save()
+		self.tlock.release()
+
+	def run(self):
+		while 1:
+			# wait for timer to complete
+			self.tlock.acquire()
+			if not self.cancelled:
+				self.timer = threading.Timer(self.frequency, self.update)
+			else:
+				break
+
+	def cancel(self):
+		self.cancelled = True
+		if self.tlock.locked():
+			self.tlock.release()
+
+class AutoDownloader(Downloader):
+	''' This, by itself, does everything you need for a self-updated server
+	except provide an interface for others to connect to you. It does,
+	however, give each label updater a different frequency within a range
+	you define, so that you don't get everything trying to update at once.
+	'''
+	def __init__(self, path=None, following=[], frequency_min=200, frequency_max=300):
+		self.updaters = {}
+		self.freq_min = frequency_min
+		self.freq_max = frequency_max
+		Downloader.__init__(self, path, following)
+
+	def add(self, labelname):
+		with self.lock:
+			Downloader.add(self,labelname)
+			self.updaters[labelname] = Updater(self,
+							labelname,
+							self.frequency())
+
+	def remove(self, labelname):
+		with self.lock:
+			Downloader.remove(self,labelname)
+			self.updaters[labelname].cancel()
+			del self.updaters[labelname]
+
+	def frequency(self):
+		return self.freq_min + random()*(self.freq_max-self.freq_min)
+
+	def close(self):
+		with self.lock:
+			Downloader.close(self)
+			for i in self.updaters:
+				self.updaters[i].cancel()
+				del self.updaters[i]
+
+get = re.compile("get (\w+)$")
+getslice = re.compile("get (\w+)\[(\d+):(\d+)\]$")
+
+class Server:
+	''' A fully featured HALP server. '''
+	def __init__(self, port = 3451, automatic=True):
+		if automatic:
+			self.dl = AutoDownloader()
+		else:
+			self.dl = Downloader()
+		self.port = port
+		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+	def start(self):
+		self.socket.bind(('',self.port))
+		self.socket.listen(5)
+		print "Now serving on port %d." % self.port
+		while 1:
+			client, caddress = self.socket.accept()
+			print "Connection:",caddress
+			query = client.recv(4096)
+			response = self.parse(query)
+			print "Sending:\n%s" % response
+			client.sendall(response)
+			client.close()
+
+	def close(self):
+		self.socket.close()
+		self.dl.close()
+
+	def parse(self, query):
+		if get.match(query):
+			# 1 - label
+			match = get.match(query)
+			return self.do_get(match.group(1))
+		elif getslice.match(query):
+			# 1 - label, 2 - slice
+			match = get.match(query)
+			slice = tuple(match.group(2).split(":"))
+			return self.do_get(match.group(1), slice=slice)
+
+	def do_get(self, label, index=None, slice=(0,10)):
+		# return str(halp.posixnow())+" localhost 3452"
+		addrlist = self.dl.load_cached(label).split("\n")
+		if index == None:
+			return "\n".join(addrlist[slice[0]:slice[1]])
+		else:
+			return addrlist[index]
