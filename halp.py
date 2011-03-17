@@ -290,6 +290,11 @@ class Downloader:
 				self.insertToCache('halp',address, 0)
 			return response
 
+	def bcast_insert(self, label, hostname, port, n=5, timestamp=posixnow()):
+		query = "insert "+label+"\n"+" ".join(
+			[timestamp, hostname, str(port)])
+		self.bcast(query, n)
+
 	def bcast(self, query, n):
 		assert(type(query)==string)
 		assert(type(n)==int)

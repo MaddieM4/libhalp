@@ -12,6 +12,7 @@ subparsers = parser.add_subparsers()
 
 get = subparsers.add_parser("get", help="Load a list of addresses from a label")
 insert = subparsers.add_parser("insert", help="Manually add an address to cache")
+bcast = subparsers.add_parser("bcast", help="Send an insertion to HALP servers")
 clear = subparsers.add_parser("clear", help="Delete cached data")
 nuke = subparsers.add_parser("nuke", help="Delete all cached data")
 
@@ -21,6 +22,12 @@ insert.add_argument("label")
 insert.add_argument("hostname")
 insert.add_argument("port", type=int)
 insert.add_argument("-s", "--seconds", type=int, default=60)
+
+bcast.add_argument("label")
+bcast.add_argument("hostname")
+bcast.add_argument("port", type=int)
+bcast.add_argument("-s", "--seconds", type=int, default=60)
+bcast.add_argument("-n", "--number", type=int, default=5)
 
 clear.add_argument("label")
 
@@ -36,6 +43,11 @@ def do_insert(args):
 	label.set((args.hostname, args.port), mytime)
 	label.save()
 
+def do_bcast(args)
+	downloader = halp.Downloader()
+	downloader.bcast_insert(args.label, args.hostname, args.port,
+		args.number, halp.posixnow()-args.seconds)
+
 def do_clear(args):
 	halp.Cache().clear(args.label)
 
@@ -44,6 +56,7 @@ def do_nuke(args):
 
 get.set_defaults(func=do_get)
 insert.set_defaults(func=do_insert)
+bcast.set_defaults(func=do_bcast)
 clear.set_defaults(func=do_clear)
 nuke.set_defaults(func=do_nuke)
 
