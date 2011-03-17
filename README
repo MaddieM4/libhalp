@@ -42,8 +42,6 @@ out information on every connection event that goes through it.
 	TODO:
 
 	* Add insertion support to the server
-	* Create a bcast function that attempts to send an insertion to the 
-	  first N working HALP servers.
 	* Add sublabel support to the core module
 	* Add a .allocation file to the cache to control the maximum size of
 	  lists cached on the disk and memory.

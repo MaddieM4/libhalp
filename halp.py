@@ -241,8 +241,7 @@ class Downloader:
 			else:
 				self.cache = Cache(path)
 			self.labels = {}
-			self.load('halp')
-			self['halp'].save()
+			self.get('halp')
 			for i in following:
 				self.load(i)
 
@@ -290,6 +289,20 @@ class Downloader:
 				# bring first working server to top of cache
 				self.insertToCache('halp',address, 0)
 			return response
+
+	def bcast(self, query, n):
+		assert(type(query)==string)
+		assert(type(n)==int)
+		for i in self['halp']:
+			# Broadcast down the list until n=0 or end of list
+			if n <= 0:
+				break
+			try:
+				address = i[:2]
+				response = talk(address, query)
+				n -= 1
+			except Exception:
+				pass
 
 	def clear(self, labelname):
 		with self.lock:
