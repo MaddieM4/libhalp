@@ -9,6 +9,7 @@ import datetime
 import time
 import socket
 import threading
+import code
 from random import random
 
 def isvalidlabel(labelname):
@@ -30,7 +31,10 @@ def posixnow():
 
 def to_text(address, seconds):
 	assert(type(seconds)==int)
-	return " ".join([str(seconds), address[0], str(address[1])])
+	if type(address)==str:
+		return " ".join([str(seconds), address])
+	else:
+		return " ".join([str(seconds), address[0], str(address[1])])
 
 def to_text_dt(address, mytime):
 	return to_text(address, int(time.mktime(mytime.timetuple())))
@@ -45,7 +49,7 @@ class Cache:
 	def labelpath(self, labelname):
 		if not isvalidlabel(labelname):
 			raise ValueError("'%s' is not a properly-formatted label" % labelname)
-		return os.path.join(self.path, labelname.replace("/","."))
+		return os.path.join(self.path, labelname.replace("/","~"))
 
 	def get(self, labelname):
 		path = self.labelpath(labelname)
@@ -61,7 +65,7 @@ class Cache:
 		for i in os.listdir(self.path):
 			os.remove(os.path.join(self.path,i))
 
-cacheaddress = re.compile("(\d+) (.+) (\d+)$")
+cacheaddress = re.compile("(\d+) (\S+) ?(\d+)?$")
 
 class Label:
 	''' A class that models a label in the cache. Not thread-safe
@@ -116,8 +120,8 @@ class Label:
 		else:
 			return False
 
-	def set(self, address, timestamp):
-		assert(type(timestamp)==datetime.datetime)
+	def set(self, address, dtime):
+		assert(type(dtime)==datetime.datetime)
 		if self.sub:
 			assert(type(address)==str)
 		else:
@@ -125,8 +129,8 @@ class Label:
 			assert(type(address[1])==int)
 		a = self.alloc(address)
 		if self[a] != None:
-				timestamp = max(self.time(self[a]), timestamp)
-		self[a] = self.nentry(address, timestamp)
+				dtime = max(self.time(self[a]), dtime)
+		self[a] = self.nentry(address, dtime)
 		self.addresses.add(address)
 		if self.maxsize!=None:
 			self.trim(self.maxsize)
@@ -207,10 +211,13 @@ class Label:
 	def __contains__(self, address):
 		return address in self.addresses
 
+	def __iter__(self):
+		return self.contents.__iter__()
+
 	def __str__(self):
 		result = ""
 		for i in self.contents:
-			result += to_text_dt((i[0],i[1]), i[2]) +"\n"
+			result += to_text_dt(self.addr(i), self.time(i)) +"\n"
 		return result[:-1]
 
 	def __len__(self):
@@ -242,6 +249,7 @@ class Downloader:
 				self.cache = Cache(path)
 			self.labels = {}
 			self.get('halp')
+			self.get('labels')
 			for i in following:
 				self.load(i)
 
@@ -291,30 +299,32 @@ class Downloader:
 			return response
 
 	def bcast_insert(self, label, hostname, port, n=5, timestamp=posixnow()):
-		query = "insert "+label+"\n"+" ".join(
-			[str(timestamp), hostname, str(port)])
-		return self.bcast(query, n)
+		with self.lock:
+			query = "insert "+label+"\n"+" ".join(
+				[str(timestamp), hostname, str(port)])
+			return self.bcast(query, n)
 
 	def bcast(self, query, n):
-		assert(type(query)==str)
-		assert(type(n)==int)
-		message = ""
-		t = 0
-		for i in self['halp']:
-			# Broadcast down the list until t=n or end of list
-			if t >= n:
-				break
-			try:
-				address = i[:2]
-				response = talk(address, query)
-				message += "Server %s responded:\n\t%s\n" %(
-					str(address), 
-					response.replace("\n","\n\t"))
-				t += 1
-			except Exception:
-				pass
-		message += "%d/%d messages sent successfully" % (t, n)
-		return message
+		with self.lock:
+			assert(type(query)==str)
+			assert(type(n)==int)
+			message = ""
+			t = 0
+			for i in self['halp']:
+				# Broadcast down the list until t=n or end of list
+				if t >= n:
+					break
+				try:
+					address = i[:2]
+					response = talk(address, query)
+					message += "Server %s responded:\n\t%s\n" %(
+						str(address), 
+						response.replace("\n","\n\t"))
+					t += 1
+				except Exception:
+					pass
+			message += "%d/%d messages sent successfully" % (t, n)
+			return message
 
 	def clear(self, labelname):
 		with self.lock:
@@ -331,6 +341,21 @@ class Downloader:
 			else:
 				self.labels[labelname].reload()
 			return self.labels[labelname]
+
+	def __ins_label__(self, label, root):
+		with self.lock:
+			root = self[root]
+			root.set(label, datetime.datetime.utcnow())
+			root.save()
+
+	def insert_label(self, label):
+		with self.lock:
+			split = label.strip('/').split('/')
+			self.__ins_label__(split[0], "labels")
+			root = split[0]+"/"
+			for i in split[1:]:
+				self.__ins_label__(i, root)
+				root += i+"/"
 
 	def insertToCache(self, label, address, seconds):
 		with self.lock:
@@ -360,7 +385,12 @@ class Updater(threading.Thread):
 	def update(self):
 		with self.dl.lock:
 			self.dl.load(self.label)
-			self.dl[self.label].save()
+			label = self.dl[self.label]
+			label.save()
+			if label.sub:
+				for i in label:
+					# use __getitem__ to start tracking
+					l = self.dl[self.label+i]
 		self.tlock.release()
 
 	def run(self):
@@ -463,6 +493,7 @@ class Server:
 	def do_get(self, label, index=None, slice=(0,10)):
 		# return str(halp.posixnow())+" localhost 3452"
 		addrlist = self.dl.load_cached(label).split("\n")
+		self.dl.insert_label(label)
 		if index == None:
 			return "\n".join(addrlist[slice[0]:slice[1]])
 		else:
@@ -479,4 +510,5 @@ class Server:
 				else:
 					message += "failure: "+ml
 			label.save()
+			self.dl.insert_label(l)
 		return message
