@@ -109,7 +109,7 @@ class Label:
 	def setfromtext(self, text):
 		match = cacheaddress.match(text)
 		if match:
-			t = datetime.datetime.utcfromtimestamp(
+			t = datetime.datetime.fromtimestamp(
 				float(match.group(1)) )
 			if self.sub:
 				address = match.group(2)
@@ -132,6 +132,7 @@ class Label:
 				dtime = max(self.time(self[a]), dtime)
 		self[a] = self.nentry(address, dtime)
 		self.addresses.add(address)
+		self.sort()
 		if self.maxsize!=None:
 			self.trim(self.maxsize)
 
@@ -442,7 +443,7 @@ class AutoDownloader(Downloader):
 				self.updaters[i].cancel()
 				del self.updaters[i]
 
-get = re.compile("get (\w+)$")
+get = re.compile("get ([\w/]+)$")
 getslice = re.compile("get (\w+)\[(\d+):(\d+)\]$")
 insert = re.compile("insert(( [a-z0-9_\.]+)*)\n")
 
@@ -489,6 +490,8 @@ class Server:
 			labels = insert.match(query).groups(1)[0].split()
 			entries = query.split("\n")[1:]
 			return self.do_insert(labels, entries)
+		else:
+			return "Could not parse request"
 
 	def do_get(self, label, index=None, slice=(0,10)):
 		# return str(halp.posixnow())+" localhost 3452"
